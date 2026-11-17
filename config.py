@@ -42,6 +42,29 @@ CAR_WIDTH = 12
 ROTATION_STEPS = 64          # 미리 만들어 둘 회전 이미지 개수
 SPEED_TO_KMH = 0.9           # 화면에 표시할 속도 환산값
 
+# 드리프트 (고속에서 B를 누르며 조향)
+DRIFT_MIN_SPEED = 120.0      # 이 속도 이상에서만 드리프트 시작
+DRIFT_END_SPEED = 70.0       # 이 아래로 느려지면 드리프트 끝
+DRIFT_GRIP = 1.6             # 드리프트 중 접지력 (작을수록 많이 미끄러짐)
+DRIFT_TURN_MULT = 1.3        # 드리프트 중 회전 속도 배율
+DRIFT_HANDBRAKE = 60.0       # 드리프트 중 B를 계속 누르면 이만큼만 감속 (일반 브레이크보다 약하게)
+
+# 부스트
+BOOST_SEGMENTS = 3           # 게이지 칸 수 (부스트 1번 = 1칸)
+BOOST_CHARGE = 1.0           # 드리프트로 게이지가 차는 속도 (미끄러지는 정도 x 시간에 곱함)
+BOOST_SEC = 1.5              # 부스트 지속 시간
+BOOST_SPEED_MULT = 1.3       # 부스트 중 최고 속도 배율
+BOOST_ACCEL = 300.0          # 부스트 중 추가 가속
+BOOST_GRASS_LOSS = 0.8       # 드리프트 중 잔디에 있으면 초당 잃는 칸
+BOOST_WALL_LOSS = 0.5        # 드리프트 중 벽에 부딪히면 한 번에 잃는 칸
+
+# 고스트 / 구간 기록 / 저장
+GHOST_HZ = 15                # 고스트 위치를 1초에 몇 번 기록할지
+GHOST_ALPHA = 110            # 고스트 투명도 (0=안 보임, 255=불투명)
+GHOST_SNAP_DIST = 60.0       # 기록 사이가 이보다 멀면(복귀 버튼) 미끄러지듯 보간하지 않고 바로 이동
+SPLIT_SHOW_SEC = 2.0         # 구간 기록 차이(+0.31) 보여주는 시간
+SAVE_FILE = "save_data.json"
+
 # 고정 시간 간격 물리
 PHYSICS_HZ = 60              # 물리는 1초에 항상 이만큼 계산 (화면 FPS와 무관)
 MAX_STEPS_PER_FRAME = 5      # 너무 밀리면 따라잡기를 포기 (느린 기기에서 멈춤 방지)

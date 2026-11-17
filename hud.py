@@ -1,10 +1,12 @@
 """레이스 화면 위에 겹쳐 그리는 정보.
 
-  왼쪽 위   LAP 2/3, 이번 랩 시간
-  오른쪽 위  전체 시간, 이번 판 최고 랩
-  왼쪽 아래  속도 숫자 + 막대
-  오른쪽 아래 FPS (개발용, config.SHOW_FPS)
-  가운데    카운트다운, GO!, 랩 알림, WRONG WAY, FINISH!
+  왼쪽 위    LAP 2/3, 이번 랩 시간
+  가운데 위   구간 기록 차이 (-0.42 초록 / +0.31 빨강)
+  오른쪽 위   전체 시간, 저장된 최고 랩
+  왼쪽 아래   속도
+  가운데 아래  부스트 게이지 (3칸)
+  오른쪽 아래  FPS (개발용, config.SHOW_FPS)
+  가운데     카운트다운, GO!, 랩 알림, WRONG WAY, FINISH!
 """
 from PIL import ImageDraw
 
@@ -15,10 +17,12 @@ WHITE = (255, 255, 255)
 GREEN = (120, 255, 140)
 YELLOW = (255, 220, 0)
 RED = (255, 60, 50)
+CYAN = (60, 210, 255)
+ORANGE = (255, 140, 0)
 CX, CY = config.SCREEN_W // 2, config.SCREEN_H // 2
 
 
-def draw_race(frame, session, fps):
+def draw_race(frame, session, fps, split=None):
     d = ImageDraw.Draw(frame)
     lap, car, laps = session.lap, session.car, session.track.laps
     right = config.SCREEN_W - 6
@@ -28,21 +32,31 @@ def draw_race(frame, session, fps):
     shown = lap.lap_times[-1] if lap.finished else lap.current_lap_time   # 결승 후엔 마지막 랩 기록
     ui.text(d, (6, 24), ui.format_time(shown), 13)
 
-    # 오른쪽 위: 전체 시간 + 최고 랩
-    ui.text(d, (right, 4), ui.format_time(lap.time), 13, anchor="ra")
-    if lap.best_lap is not None:
-        ui.text(d, (right, 22), "BEST " + ui.format_time(lap.best_lap), 10, GREEN, anchor="ra", stroke=1)
+    # 가운데 위: 구간 기록 차이
+    if split is not None:
+        ui.text(d, (CX, 6), f"{split:+.2f}", 15, GREEN if split <= 0 else RED, anchor="mt")
 
-    # 왼쪽 아래: 속도 숫자 + 막대
+    # 오른쪽 위: 전체 시간 + 최고 랩 (저장된 기록)
+    ui.text(d, (right, 4), ui.format_time(lap.time), 13, anchor="ra")
+    best = session.best_lap
+    if best is not None:
+        ui.text(d, (right, 22), "BEST " + ui.format_time(best), 10, GREEN, anchor="ra", stroke=1)
+
+    # 왼쪽 아래: 속도
     fwd = abs(car.forward_speed())
     ui.text(d, (6, 214), f"{int(fwd * config.SPEED_TO_KMH):3d} km/h", 16)
-    ratio = min(1.0, fwd / config.MAX_SPEED)
-    d.rectangle((110, 222, 170, 230), fill=(0, 0, 0))
-    d.rectangle((111, 223, 111 + int(58 * ratio), 229),
-                fill=(255, 200, 0) if not car.on_grass else (120, 200, 80))
+
+    # 가운데 아래: 부스트 게이지 (칸마다 채워진 정도)
+    color = ORANGE if car.boosting else CYAN
+    for i in range(config.BOOST_SEGMENTS):
+        x0 = 110 + i * 22
+        d.rectangle((x0, 221, x0 + 19, 231), fill=(0, 0, 0))
+        fill = min(1.0, max(0.0, car.gauge - i))
+        if fill > 0:
+            d.rectangle((x0 + 1, 222, x0 + 1 + int(17 * fill), 230), fill=color if fill >= 1 else (40, 110, 140))
 
     # 오른쪽 아래: FPS (개발용)
-    if config.SHOW_FPS:
+    if config.SHOW_FPS and fps > 0:
         ui.text(d, (right, 222), f"{fps:4.1f}", 10, YELLOW, anchor="ra", stroke=1)
 
 
@@ -51,10 +65,10 @@ def big_center(frame, s, color):
     ui.text(ImageDraw.Draw(frame), (CX, CY - 20), s, 40, color, anchor="mm", stroke=4)
 
 
-def banner(frame, title, sub):
+def banner(frame, title, sub, color=YELLOW):
     """랩 완료 알림: 큰 제목 + 작은 시간"""
     d = ImageDraw.Draw(frame)
-    ui.text(d, (CX, 72), title, 20, YELLOW, anchor="mm", stroke=3)
+    ui.text(d, (CX, 72), title, 20, color, anchor="mm", stroke=3)
     ui.text(d, (CX, 96), sub, 14, anchor="mm")
 
 

@@ -27,7 +27,8 @@ class LapTracker:
         self.time = 0.0                                # 레이스 전체 시간
         self.lap_start = 0.0
         self.lap_times = []
-        self.splits = []                               # 이번 랩의 체크포인트 통과 시각 (2주차 구간 비교용)
+        self.splits = []                               # 이번 랩의 체크포인트 통과 시각 (구간 비교용)
+        self.last_lap_splits = []                      # 방금 끝난 랩의 splits
         self.finished = False
         self.wrong_time = 0.0
         self.wrong_way = False
@@ -43,7 +44,7 @@ class LapTracker:
 
     # ---------- 매 물리 스텝 ----------
     def step(self, dt, car):
-        """1/60초마다 호출. 랩이 끝나면 "lap", 레이스가 끝나면 "finish"를 돌려줘요."""
+        """1/60초마다 호출. 체크포인트 통과 "cp", 랩 완료 "lap", 레이스 끝 "finish", 아니면 None."""
         if self.finished:
             return None
         self.time += dt
@@ -66,12 +67,12 @@ class LapTracker:
         if self.next_cp != 0:
             self.splits.append(self.current_lap_time)
             self.next_cp = (self.next_cp + 1) % len(self.cps)
-            return None
+            return "cp"
 
         # 출발선 통과 = 한 바퀴 완료
         self.lap_times.append(self.current_lap_time)
         self.lap_start = self.time
-        self.splits = []
+        self.last_lap_splits, self.splits = self.splits, []
         self.next_cp = 1 if len(self.cps) > 1 else 0
         if len(self.lap_times) >= self.track.laps:
             self.finished = True

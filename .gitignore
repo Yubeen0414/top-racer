@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# 기록 파일 (기기마다 따로 저장, git에 올리지 않음)
+save_data.json
+save_data.json.*

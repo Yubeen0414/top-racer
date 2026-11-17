@@ -37,8 +37,10 @@ def catmull_rom(points, samples=12):
 
 class Track:
     def __init__(self, data):
+        self.data = data
         self.name = data["name"]
         self.laps = data["laps"]
+        self.medals = data.get("medals")
         self.w, self.h = config.WORLD_W, config.WORLD_H
 
         self.centerline = catmull_rom(data["points"])
@@ -61,6 +63,14 @@ class Track:
         (px, py), (tx, ty) = self.cl[0], self.tangent[0]
         self.start_heading = math.atan2(ty, tx)
         self.start_pos = (px - tx * config.START_BACK, py - ty * config.START_BACK)
+
+    @property
+    def key(self):
+        """기록 비교용 지문 (save.py 참고)"""
+        if not hasattr(self, "_key"):
+            import save
+            self._key = save.fingerprint(self.data)
+        return self._key
 
     # ---------- 판정 ----------
     def surface_at(self, x, y):
