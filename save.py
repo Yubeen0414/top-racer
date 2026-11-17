@@ -25,6 +25,7 @@ RECORD_KEYS = (
     "PHYSICS_HZ", "ROAD_WIDTH", "CURB_WIDTH", "WALL_THICKNESS", "WORLD_W", "WORLD_H",
     "ACCEL", "BRAKE", "REVERSE_ACCEL", "MAX_SPEED", "MAX_REVERSE", "DRAG", "GRIP",
     "TURN_RATE", "TURN_FULL_SPEED", "GRASS_MAX_SPEED", "GRASS_DRAG", "WALL_BOUNCE",
+    "SAND_MAX_SPEED", "SAND_DRAG", "SAND_CORNER_TURN",
     "CAR_WIDTH", "START_BACK", "CHECKPOINT_MAX_JUMP",
     "DRIFT_MIN_SPEED", "DRIFT_END_SPEED", "DRIFT_RELEASE_GRACE", "DRIFT_GRIP", "DRIFT_TURN_MULT",
     "DRIFT_KEEP", "DRIFT_SLIP_FULL",
@@ -33,9 +34,14 @@ RECORD_KEYS = (
 )
 
 
+# 트랙 데이터 중 기록과 무관한 것 (바꿔도 기록이 유지돼요)
+COSMETIC_KEYS = ("name", "medals", "theme", "lamps", "subtitle")
+
+
 def fingerprint(track_data):
     values = [getattr(config, k) for k in RECORD_KEYS]
-    blob = json.dumps([values, track_data["points"], track_data["laps"], track_data["checkpoints"]])
+    layout = {k: v for k, v in track_data.items() if k not in COSMETIC_KEYS}
+    blob = json.dumps([values, layout], sort_keys=True)
     return hashlib.sha1(blob.encode()).hexdigest()[:12]
 
 
@@ -59,7 +65,18 @@ class SaveData:
         self.data = self._load()
 
     def _fresh(self):
-        return {"version": VERSION, "tracks": {}}
+        return {"version": VERSION, "tracks": {}, "unlocked": []}
+
+    # ---------- 해금 (물리 값이 바뀌어도 유지) ----------
+    @property
+    def unlocked(self):
+        u = self.data.get("unlocked")
+        return u if isinstance(u, list) else []
+
+    def unlock(self, name):
+        if name not in self.unlocked:
+            self.data["unlocked"] = self.unlocked + [name]
+            self._write()
 
     def _load(self):
         try:

@@ -12,21 +12,39 @@
 """
 import time
 
+from PIL import Image, ImageDraw
+
 import config
 import hardware
+import progress
+import ui
 from save import SaveData
 from states import TitleState
 from track import Track
 from tracks import TRACKS
 
+MINIMAP_SIZE = 64
+THUMB_SIZE = 120
+
 
 class Game:
-    """게임 전체에서 공유하는 것 (트랙은 만들기 오래 걸리니 시작할 때 한 번만)."""
+    """게임 전체에서 공유하는 것.
 
-    def __init__(self, save=None):
-        self.tracks = [Track(data) for data in TRACKS]
-        self.track_index = 0
+    트랙 그림, 미니맵, 선택 화면용 축소 그림은 만들기 오래 걸리니 시작할 때 한 번만 만들어요.
+    """
+
+    def __init__(self, save=None, on_progress=None):
         self.save = save or SaveData()
+        self.tracks = []
+        for i, data in enumerate(TRACKS):
+            if on_progress:
+                on_progress(i, len(TRACKS))
+            t = Track(data)
+            t.minimap = t.make_minimap(MINIMAP_SIZE)
+            t.thumb = t.image.resize((THUMB_SIZE, THUMB_SIZE), Image.BILINEAR)
+            self.tracks.append(t)
+        self.track_index = 0
+        progress.sync_unlocks(self)
 
     @property
     def track(self):
@@ -58,6 +76,29 @@ class StepInput:
         return name in self.pending
 
 
+class Profiler:
+    """config.PROFILE = True 이면 5초마다 어디에 시간이 쓰이는지 터미널에 출력해요.
+    update = 입력+물리, draw = 그림 만들기, show = 화면으로 전송(파이에선 SPI)"""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.n, self.t = 0, {"update": 0.0, "draw": 0.0, "show": 0.0, "sleep": 0.0}
+        self.start = time.perf_counter()
+
+    def add(self, key, sec):
+        self.t[key] += sec
+
+    def frame_done(self):
+        self.n += 1
+        elapsed = time.perf_counter() - self.start
+        if config.PROFILE and elapsed >= 5.0:
+            parts = "  ".join(f"{k} {v / self.n * 1000:5.1f}ms" for k, v in self.t.items())
+            print(f"[profile] {self.n / elapsed:5.1f} FPS  |  {parts}")
+            self.reset()
+
+
 def run(hw, game):
     inp = hardware.Input(hw)
     sinp = StepInput(inp)
@@ -68,6 +109,7 @@ def run(hw, game):
     acc = 0.0
     last = time.perf_counter()
     fps = float(config.TARGET_FPS)
+    prof = Profiler()
 
     while hw.running:
         now = time.perf_counter()
@@ -100,18 +142,39 @@ def run(hw, game):
             sinp.consume()           # 화면을 바꾼 버튼이 다음 화면에서 또 눌린 걸로 치지 않게
 
         # 4) 그리기
-        hw.show(state.draw(fps))
+        t1 = time.perf_counter()
+        frame = state.draw(fps)
+        t2 = time.perf_counter()
+        hw.show(frame)
+        t3 = time.perf_counter()
+        prof.add("update", t1 - now)
+        prof.add("draw", t2 - t1)
+        prof.add("show", t3 - t2)
 
         # 목표 FPS보다 빠르면 쉬기
         spare = frame_time - (time.perf_counter() - now)
         if spare > 0:
             time.sleep(spare)
+            prof.add("sleep", spare)
+        prof.frame_done()
+
+
+def loading_screen(hw, i, n):
+    img = Image.new("RGB", (config.SCREEN_W, config.SCREEN_H), (12, 14, 22))
+    d = ImageDraw.Draw(img)
+    cx = config.SCREEN_W // 2
+    ui.text(d, (cx, 100), "TOP RACER", 24, anchor="mm", stroke=3)
+    ui.text(d, (cx, 132), f"LOADING TRACKS {i + 1}/{n}", 11, (180, 180, 180), anchor="mm", stroke=1)
+    d.rectangle((60, 148, 180, 154), outline=(90, 90, 90))
+    d.rectangle((61, 149, 61 + int(118 * i / n), 153), fill=(60, 210, 255))
+    hw.show(img)
 
 
 def main():
     hw = hardware.create()
     try:
-        run(hw, Game())
+        game = Game(on_progress=lambda i, n: loading_screen(hw, i, n))
+        run(hw, game)
     except KeyboardInterrupt:
         pass
     finally:

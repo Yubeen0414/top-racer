@@ -18,7 +18,7 @@ import math
 from PIL import Image, ImageDraw
 
 import config
-from track import WALL, GRASS
+from track import WALL, GRASS, SAND
 
 
 def _make_sprites(color, alpha=255, shadow=True):
@@ -77,6 +77,7 @@ class Car:
         self.heading = heading
         self.vx = self.vy = 0.0
         self.on_grass = False
+        self.on_sand = False
         self.drifting = False
         self.no_steer_time = 0.0  # 드리프트 중 조향을 놓고 있던 시간
         self.b_lock = False       # 드리프트에 쓴 B를 아직 안 뗐으면 True (브레이크 막기)
@@ -139,14 +140,20 @@ class Car:
             self.boost_time = max(0.0, self.boost_time - dt)
             f += config.BOOST_ACCEL * dt
 
-        # 4) 노면: 잔디면 더 느려짐
-        self.on_grass = track.surface_at(self.x, self.y) == GRASS
-        drag = config.DRAG + (config.GRASS_DRAG if self.on_grass else 0.0)
-        f *= math.exp(-drag * dt)
-        if self.on_grass:
+        # 4) 노면: 잔디면 느려지고, 모래면 훨씬 느려짐
+        surface = track.surface_at(self.x, self.y)
+        self.on_sand = surface == SAND
+        self.on_grass = surface == GRASS or self.on_sand   # '도로 밖' (게이지 손실, HUD 색)
+        drag = config.DRAG
+        if self.on_sand:
+            drag += config.SAND_DRAG
+            max_f = config.SAND_MAX_SPEED
+        elif self.on_grass:
+            drag += config.GRASS_DRAG
             max_f = config.GRASS_MAX_SPEED
         else:
             max_f = config.MAX_SPEED * (config.BOOST_SPEED_MULT if self.boosting else 1.0)
+        f *= math.exp(-drag * dt)
         if f > max_f:
             f -= (f - max_f) * min(1.0, 4.0 * dt)   # 갑자기 멈추지 않게 서서히
         f = max(-config.MAX_REVERSE, f)

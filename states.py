@@ -1,7 +1,8 @@
 """게임 화면(상태)들. main.py는 '지금 상태' 하나만 돌려요.
 
-  TitleState -> CountdownState -> RaceState <-> PauseState
-                                     -> ResultState -> (다시 달리기 / 타이틀)
+  TitleState -> TrackSelectState -> CountdownState -> RaceState <-> PauseState
+                                                       -> ResultState -> (다시 / 트랙 선택)
+                                                       -> (세 트랙 모두 금메달) AllGoldState
 
 각 상태가 가진 함수:
   frame(dt, inp)  화면 한 장마다 한 번. 메뉴 버튼, 카메라처럼 기록에 영향 없는 것.
@@ -13,6 +14,7 @@ from PIL import Image, ImageDraw
 
 import config
 import hud
+import progress
 import ui
 from camera import Camera
 from car import Car
@@ -66,6 +68,9 @@ class RaceSession:
         self.recorder = GhostRecorder()
         self.recorder.step(self.car)                 # 랩 시간 0초 위치
         self.new_record = False                      # 이번 판에 최고 총 기록을 깼는지
+        self.medal = None                            # 이번 판 기록으로 받은 메달
+        self.unlocked = []                           # 이번 판으로 새로 열린 트랙
+        self.newly_all_gold = False                  # 이번 판으로 모든 트랙 금메달 달성
 
     @property
     def best_lap(self):
@@ -88,10 +93,14 @@ class RaceSession:
             self.ghost = GhostPlayer(frames)          # 다음 랩부터 새 고스트와 경쟁
         if finished:
             total = self.lap.time
+            was_all_gold = progress.all_gold(self.game)
             old = self.record.get("best_total")
             if old is None or total < old:
                 self.record = save.update(self.track, best_total=total)
                 self.new_record = True
+            self.medal = progress.medal_for(self.track, total)
+            self.unlocked = progress.sync_unlocks(self.game)
+            self.newly_all_gold = progress.all_gold(self.game) and not was_all_gold
         return delta
 
     def render_world(self):
@@ -119,16 +128,15 @@ class TitleState(State):
         d = ImageDraw.Draw(self.bg)
         ui.text(d, (hud.CX, 74), "TOP RACER", 30, anchor="mm", stroke=3)
         ui.text(d, (hud.CX, 104), "GHOST LAP", 18, (120, 200, 255), anchor="mm")
-        ui.text(d, (hud.CX, 132), track.name, 11, (200, 200, 200), anchor="mm", stroke=1)
-        rec = game.save.record(track)
-        if rec and rec.get("best_total") is not None:
-            ui.text(d, (hud.CX, 150), "RECORD " + ui.format_time(rec["best_total"]), 11, hud.GREEN,
-                    anchor="mm", stroke=1)
+        # 트랙별 최고 메달
+        n = len(game.tracks)
+        for i, t in enumerate(game.tracks):
+            hud.medal(d, hud.CX + (i - (n - 1) / 2) * 30, 146, 8, progress.best_medal(game, t))
 
     def frame(self, dt, inp):
         self.t += dt
         if any(inp.pressed(b) for b in BUTTONS):
-            self.next = CountdownState(self.game, RaceSession(self.game))
+            self.next = TrackSelectState(self.game)
 
     def draw(self, fps):
         img = self.bg.copy()
@@ -234,7 +242,7 @@ class RaceState(State):
 
 # ---------------------------------------------------------------- 일시정지
 class PauseState(State):
-    ITEMS = ("CONTINUE", "RESPAWN", "RESTART", "TITLE")
+    ITEMS = ("CONTINUE", "RESPAWN", "RESTART", "TRACKS")
 
     def __init__(self, game, race):
         super().__init__(game)
@@ -263,7 +271,7 @@ class PauseState(State):
             elif item == "RESTART":
                 self.next = CountdownState(self.game, RaceSession(self.game))
             else:
-                self.next = TitleState(self.game)
+                self.next = TrackSelectState(self.game)
 
     def draw(self, fps):
         img = self.bg.copy()
@@ -283,6 +291,7 @@ class ResultState(State):
     def __init__(self, game, session):
         super().__init__(game)
         self.t = 0.0
+        self.s = session
         self.img = self._make(session)
 
     @staticmethod
@@ -291,36 +300,158 @@ class ResultState(State):
         d = ImageDraw.Draw(img)
         cx = hud.CX
         laps = s.lap.lap_times
-        ui.text(d, (cx, 24), "RESULT", 22, anchor="mm", stroke=3)
-        ui.text(d, (cx, 50), "TOTAL", 11, (190, 190, 190), anchor="mm", stroke=1)
-        ui.text(d, (cx, 72), ui.format_time(s.lap.time), 24, hud.YELLOW, anchor="mm", stroke=3)
+        ui.text(d, (cx, 20), "RESULT", 20, anchor="mm", stroke=3)
+        ui.text(d, (cx, 44), "TOTAL", 10, (190, 190, 190), anchor="mm", stroke=1)
+        ui.text(d, (cx, 64), ui.format_time(s.lap.time), 24, hud.YELLOW, anchor="mm", stroke=3)
         if s.new_record:
-            ui.text(d, (cx, 98), "NEW RECORD!", 15, hud.GREEN, anchor="mm", stroke=2)
+            ui.text(d, (cx, 88), "NEW RECORD!", 14, hud.GREEN, anchor="mm", stroke=2)
         elif s.record and s.record.get("best_total") is not None:
-            ui.text(d, (cx, 98), "RECORD " + ui.format_time(s.record["best_total"]), 12,
+            ui.text(d, (cx, 88), "RECORD " + ui.format_time(s.record["best_total"]), 11,
                     (190, 190, 190), anchor="mm", stroke=1)
 
+        # 이번 판 메달 (없으면 다음 메달까지 남은 기준)
+        if s.medal:
+            hud.medal(d, cx - 52, 114, 9, s.medal)
+            ui.text(d, (cx - 36, 114), f"{s.medal.upper()} MEDAL", 14, progress.MEDAL_COLORS[s.medal], anchor="lm")
+        elif s.track.medals:
+            ui.text(d, (cx, 114), "BRONZE " + ui.format_time(s.track.medals["bronze"]), 11,
+                    progress.MEDAL_COLORS["bronze"], anchor="mm", stroke=1)
+
         best = laps.index(min(laps))
-        y = 126
+        y = 140
         for i, t in enumerate(laps):
             color = hud.GREEN if i == best else hud.WHITE
-            ui.text(d, (50, y), f"LAP {i + 1}", 14, color, anchor="lm")
-            ui.text(d, (168, y), ui.format_time(t), 14, color, anchor="rm")
+            ui.text(d, (50, y), f"LAP {i + 1}", 13, color, anchor="lm")
+            ui.text(d, (168, y), ui.format_time(t), 13, color, anchor="rm")
             if i == best:
-                ui.text(d, (174, y), "BEST", 10, color, anchor="lm", stroke=1)
-            y += 21
+                ui.text(d, (174, y), "BEST", 9, color, anchor="lm", stroke=1)
+            y += 19
 
-        ui.text(d, (cx, 216), "A: RETRY     B: TITLE", 12, anchor="mm")
+        if s.unlocked:
+            ui.text(d, (cx, 202), "NEW TRACK: " + s.unlocked[0].upper(), 11, (120, 200, 255), anchor="mm", stroke=2)
+        ui.text(d, (cx, 224), "A: RETRY     B: TRACKS", 11, anchor="mm")
         return img
 
     def frame(self, dt, inp):
         self.t += dt
         if self.t < config.RESULT_INPUT_DELAY:
             return
-        if inp.pressed("a"):
+        if not (inp.pressed("a") or inp.pressed("b")):
+            return
+        if self.s.newly_all_gold:              # 마지막 금메달이면 엔딩 먼저
+            self.next = AllGoldState(self.game)
+        elif inp.pressed("a"):
+            self.next = CountdownState(self.game, RaceSession(self.game))
+        else:
+            self.next = TrackSelectState(self.game)
+
+    def draw(self, fps):
+        return self.img
+
+
+# ---------------------------------------------------------------- 트랙 선택
+class TrackSelectState(State):
+    """좌/우로 트랙 넘기기, A로 출발, B로 타이틀. 잠긴 트랙은 출발 못 해요."""
+
+    def __init__(self, game):
+        super().__init__(game)
+        self.i = game.track_index
+        self.cards = [self._card(i) for i in range(len(game.tracks))]   # 화면에 들어올 때 한 번만 그려요
+
+    def _card(self, i):
+        game = self.game
+        tr = game.tracks[i]
+        locked = not progress.is_unlocked(game, i)
+        img = Image.new("RGB", (config.SCREEN_W, config.SCREEN_H), (14, 16, 24))
+        d = ImageDraw.Draw(img)
+        cx = hud.CX
+        ui.text(d, (cx, 10), f"TRACK {i + 1}/{len(game.tracks)}", 11, (170, 170, 170), anchor="mm", stroke=1)
+
+        thumb = tr.thumb if not locked else _darken(tr.thumb, 0.7)
+        x0 = cx - thumb.width // 2
+        img.paste(thumb, (x0, 22))
+        d.rectangle((x0 - 1, 21, x0 + thumb.width, 22 + thumb.height), outline=(90, 90, 110))
+        if locked:   # 자물쇠
+            d.arc((cx - 12, 62, cx + 12, 90), 180, 360, fill=(220, 220, 220), width=4)
+            d.rounded_rectangle((cx - 17, 76, cx + 17, 104), radius=4, fill=(220, 220, 220))
+            d.ellipse((cx - 3, 85, cx + 3, 91), fill=(40, 40, 50))
+        else:
+            # 왼쪽 위에 이 트랙 최고 메달
+            hud.medal(d, x0 + 14, 40, 8, progress.best_medal(game, tr))
+
+        if i > 0:
+            ui.text(d, (14, 82), "<", 22, anchor="mm", stroke=2)
+        if i < len(game.tracks) - 1:
+            ui.text(d, (config.SCREEN_W - 14, 82), ">", 22, anchor="mm", stroke=2)
+
+        ui.text(d, (cx, 156), tr.name.upper(), 15, anchor="mm", stroke=2)
+        ui.text(d, (cx, 172), tr.data.get("subtitle", ""), 9, (170, 170, 170), anchor="mm", stroke=1)
+
+        if locked:
+            prev = game.tracks[i - 1].name.upper()
+            ui.text(d, (cx, 192), "LOCKED", 13, hud.RED, anchor="mm", stroke=2)
+            ui.text(d, (cx, 208), f"GET BRONZE ON {prev}", 9, (190, 190, 190), anchor="mm", stroke=1)
+        else:
+            rec = game.save.record(tr)
+            best = rec.get("best_total") if rec else None
+            ui.text(d, (cx, 190), "RECORD " + ui.format_time(best), 12,
+                    hud.GREEN if best is not None else (150, 150, 150), anchor="mm", stroke=1)
+            if tr.medals:   # 메달 기준 시간
+                for k, m in enumerate(progress.MEDALS):
+                    x = 22 + k * 74
+                    hud.medal(d, x, 209, 5, m)
+                    ui.text(d, (x + 8, 209), ui.format_time(tr.medals[m]), 9, progress.MEDAL_COLORS[m],
+                            anchor="lm", stroke=1)
+        ui.text(d, (cx, 229), "A: START    B: BACK" if not locked else "B: BACK", 10,
+                (200, 200, 200), anchor="mm", stroke=1)
+        return img
+
+    def frame(self, dt, inp):
+        n = len(self.game.tracks)
+        if inp.pressed("left") and self.i > 0:
+            self.i -= 1
+        elif inp.pressed("right") and self.i < n - 1:
+            self.i += 1
+        elif inp.pressed("a") and progress.is_unlocked(self.game, self.i):
+            self.game.track_index = self.i
             self.next = CountdownState(self.game, RaceSession(self.game))
         elif inp.pressed("b"):
             self.next = TitleState(self.game)
 
     def draw(self, fps):
-        return self.img
+        return self.cards[self.i]
+
+
+# ---------------------------------------------------------------- 엔딩
+class AllGoldState(State):
+    """세 트랙 모두 금메달을 처음 달성했을 때 한 번 나오는 화면."""
+
+    def __init__(self, game):
+        super().__init__(game)
+        self.t = 0.0
+        img = Image.new("RGB", (config.SCREEN_W, config.SCREEN_H), (16, 14, 30))
+        d = ImageDraw.Draw(img)
+        rng = __import__("random").Random(4)
+        for _ in range(60):   # 반짝이는 배경 점
+            x, y = rng.randrange(240), rng.randrange(240)
+            d.point((x, y), fill=(255, 230, 150))
+        cx = hud.CX
+        n = len(game.tracks)
+        for i in range(n):
+            hud.medal(d, cx + (i - (n - 1) / 2) * 44, 62, 15, "gold")
+        ui.text(d, (cx, 116), "ALL GOLD!", 32, progress.MEDAL_COLORS["gold"], anchor="mm", stroke=4)
+        ui.text(d, (cx, 148), "TIME ATTACK MASTER", 13, anchor="mm", stroke=2)
+        total = sum(game.save.record(t)["best_total"] for t in game.tracks)
+        ui.text(d, (cx, 172), "ALL TRACKS " + ui.format_time(total), 11, (190, 190, 190), anchor="mm", stroke=1)
+        self.img = img
+
+    def frame(self, dt, inp):
+        self.t += dt
+        if self.t > config.RESULT_INPUT_DELAY and any(inp.pressed(b) for b in BUTTONS):
+            self.next = TrackSelectState(self.game)
+
+    def draw(self, fps):
+        img = self.img.copy()
+        if self.t > config.RESULT_INPUT_DELAY and int(self.t * 2) % 2 == 0:
+            ui.text(ImageDraw.Draw(img), (hud.CX, 212), "PRESS ANY BUTTON", 11, anchor="mm")
+        return img

@@ -30,6 +30,9 @@ TURN_FULL_SPEED = 60.0       # 이 속도 이상이어야 조향이 100% 들어�
 GRASS_MAX_SPEED = 110.0      # 잔디 위 최고 속도
 GRASS_DRAG = 2.5             # 잔디 추가 감속
 WALL_BOUNCE = 0.35           # 벽에 부딪혔을 때 튕기는 정도
+SAND_MAX_SPEED = 75.0        # 모래 위 최고 속도 (잔디보다 훨씬 느림)
+SAND_DRAG = 4.0              # 모래 추가 감속
+SAND_CORNER_TURN = 0.55     # 중심선이 이만큼(라디안) 이상 꺾이는 코너 바깥에 모래 (sand 켠 트랙)
 
 # 카메라
 LOOKAHEAD_TIME = 0.35        # 몇 초 앞을 보여줄지
@@ -86,4 +89,5 @@ WRONG_WAY_TIME = 0.8         # 이 시간 넘게 계속되면 WRONG WAY 표시
 
 # 개발용
 SHOW_FPS = True
+PROFILE = False              # True면 5초마다 터미널에 FPS와 (갱신/그리기/전송) 시간 출력
 DEBUG_CHECKPOINTS = False    # True면 트랙에 체크포인트 위치를 노란 선으로 표시

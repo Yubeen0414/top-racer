@@ -5,7 +5,7 @@
   오른쪽 위   전체 시간, 저장된 최고 랩
   왼쪽 아래   속도
   가운데 아래  부스트 게이지 (3칸)
-  오른쪽 아래  FPS (개발용, config.SHOW_FPS)
+  오른쪽 아래  미니맵, FPS (개발용, config.SHOW_FPS)
   가운데     카운트다운, GO!, 랩 알림, WRONG WAY, FINISH!
 """
 from PIL import ImageDraw
@@ -42,6 +42,9 @@ def draw_race(frame, session, fps, split=None):
     if best is not None:
         ui.text(d, (right, 22), "BEST " + ui.format_time(best), 10, GREEN, anchor="ra", stroke=1)
 
+    # 오른쪽 아래: 미니맵
+    minimap(frame, session)
+
     # 왼쪽 아래: 속도
     fwd = abs(car.forward_speed())
     ui.text(d, (6, 214), f"{int(fwd * config.SPEED_TO_KMH):3d} km/h", 16)
@@ -58,6 +61,38 @@ def draw_race(frame, session, fps, split=None):
     # 오른쪽 아래: FPS (개발용)
     if config.SHOW_FPS and fps > 0:
         ui.text(d, (right, 222), f"{fps:4.1f}", 10, YELLOW, anchor="ra", stroke=1)
+
+
+def medal(d, cx, cy, r, kind):
+    """메달 아이콘. kind가 None이면 빈 동그라미."""
+    from progress import MEDAL_COLORS
+    if kind is None:
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(110, 110, 110), width=1)
+        return
+    c = MEDAL_COLORS[kind]
+    d.polygon([(cx - r * 0.8, cy - r * 1.9), (cx - r * 0.1, cy - r * 0.6), (cx - r * 0.6, cy - r * 0.6)],
+              fill=(60, 90, 200))                                                    # 리본
+    d.polygon([(cx + r * 0.8, cy - r * 1.9), (cx + r * 0.1, cy - r * 0.6), (cx + r * 0.6, cy - r * 0.6)],
+              fill=(200, 50, 50))
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=c, outline=tuple(v // 2 for v in c), width=max(1, r // 5))
+    h = max(1, r // 3)
+    d.ellipse((cx - r * 0.5 - h / 2, cy - r * 0.5 - h / 2, cx - r * 0.5 + h / 2, cy - r * 0.5 + h / 2),
+              fill=(255, 255, 255))                                                  # 반짝임
+
+
+def minimap(frame, session):
+    """오른쪽 아래 미니맵: 미리 그린 트랙 모양 위에 고스트(파랑)와 내 차(빨강) 점만 찍어요."""
+    mm, to_map = session.track.minimap
+    ox, oy = config.SCREEN_W - mm.width - 6, 210 - mm.height
+    frame.paste(mm, (ox, oy), mm)
+    d = ImageDraw.Draw(frame)
+    if session.ghost and not session.lap.finished:
+        p = session.ghost.pose(session.lap.current_lap_time)
+        if p:
+            gx, gy = to_map(p[0], p[1])
+            d.ellipse((ox + gx - 2, oy + gy - 2, ox + gx + 2, oy + gy + 2), fill=(90, 170, 255))
+    cx, cy = to_map(session.car.x, session.car.y)
+    d.ellipse((ox + cx - 3, oy + cy - 3, ox + cx + 3, oy + cy + 3), fill=(240, 50, 40), outline=WHITE)
 
 
 def big_center(frame, s, color):
