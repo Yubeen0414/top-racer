@@ -5,9 +5,12 @@ heading(라디안): 0 = 오른쪽, 화면 y가 아래로 커지니까 값이 커
 옆 성분을 천천히 없애는 게 미끄러짐(드리프트)의 핵심이에요.
 
 드리프트: 빠르게 달리면서 B와 조향을 같이 누르면 시작.
-  접지력이 확 낮아지고 더 많이 돌아서 차가 옆으로 미끄러져요.
+  접지력이 낮아지고 더 많이 돌아서 차가 옆으로 미끄러져요.
+  옆으로 미끄러지며 잃는 속도 대부분을 앞으로 되돌려줘서 속도를 유지하며 길게 미끄러질 수 있어요.
   미끄러지는 동안 부스트 게이지가 차요 (옆으로 많이 미끄러질수록 빨리).
-  조향을 놓거나 너무 느려지면 끝나요. 잔디/벽에 닿으면 게이지를 잃어요.
+  드리프트 중엔 B가 브레이크로 동작하지 않고, 드리프트가 끝난 뒤에도 B를 한 번 떼기 전까지는
+  브레이크/후진이 안 걸려요 (B를 계속 누르고 있다가 갑자기 후진하지 않게).
+  조향을 잠깐 넘게 놓거나 너무 느려지면 끝나요. 잔디/벽에 닿으면 게이지를 잃어요.
 부스트: 게이지가 1칸 이상일 때 위(up)를 누르면 BOOST_SEC 동안 더 빨라져요.
 """
 import math
@@ -75,6 +78,8 @@ class Car:
         self.vx = self.vy = 0.0
         self.on_grass = False
         self.drifting = False
+        self.no_steer_time = 0.0  # 드리프트 중 조향을 놓고 있던 시간
+        self.b_lock = False       # 드리프트에 쓴 B를 아직 안 뗐으면 True (브레이크 막기)
         self.boost_time = 0.0
 
     @property
@@ -94,13 +99,19 @@ class Car:
         steer = int(inp.held("right")) - int(inp.held("left"))
 
         # 0) 드리프트 시작/끝, 부스트 시작
+        if not inp.held("b"):
+            self.b_lock = False
         if not self.drifting:
             # B와 조향을 같이 누른 순간 (어느 쪽을 먼저 눌러도 돼요)
             just = inp.pressed("b") or inp.pressed("left") or inp.pressed("right")
             if steer and inp.held("b") and just and f_old > config.DRIFT_MIN_SPEED:
                 self.drifting = True
-        elif not steer or f_old < config.DRIFT_END_SPEED:
-            self.drifting = False
+                self.b_lock = True
+                self.no_steer_time = 0.0
+        else:
+            self.no_steer_time = 0.0 if steer else self.no_steer_time + dt
+            if self.no_steer_time > config.DRIFT_RELEASE_GRACE or self.speed < config.DRIFT_END_SPEED:
+                self.drifting = False
 
         if inp.pressed("up") and not self.boosting and self.gauge >= 1.0:
             self.gauge -= 1.0
@@ -122,11 +133,8 @@ class Car:
         # 3) 가속 / 브레이크 / 후진 / 부스트
         if inp.held("a"):
             f += config.ACCEL * dt
-        elif inp.held("b"):
-            if self.drifting:
-                f -= config.DRIFT_HANDBRAKE * dt      # 드리프트 중엔 살짝만 감속
-            else:
-                f -= (config.BRAKE if f > 5 else config.REVERSE_ACCEL) * dt
+        elif inp.held("b") and not self.b_lock:      # 드리프트에 쓴 B는 떼기 전까지 무시
+            f -= (config.BRAKE if f > 5 else config.REVERSE_ACCEL) * dt
         if self.boosting:
             self.boost_time = max(0.0, self.boost_time - dt)
             f += config.BOOST_ACCEL * dt
@@ -143,18 +151,25 @@ class Car:
             f -= (f - max_f) * min(1.0, 4.0 * dt)   # 갑자기 멈추지 않게 서서히
         f = max(-config.MAX_REVERSE, f)
 
-        # 5) 접지력: 옆으로 미끄러지는 속도를 줄임 (드리프트 중엔 조금만)
-        grip = config.DRIFT_GRIP if self.drifting else config.GRIP
-        lat *= math.exp(-grip * dt)
+        # 5) 접지력: 옆으로 미끄러지는 속도를 줄임
+        if self.drifting:
+            # 드리프트 중엔 조금만 줄이고, 줄어든 만큼의 대부분을 앞 방향 속도로 돌려줘요
+            new_lat = lat * math.exp(-config.DRIFT_GRIP * dt)
+            if f > 0:
+                f += abs(lat - new_lat) * config.DRIFT_KEEP
+            lat = new_lat
+        else:
+            lat *= math.exp(-config.GRIP * dt)
 
-        # 부스트 게이지: 드리프트 중 옆으로 미끄러지는 비율만큼 충전
+        # 부스트 게이지: 드리프트 중 옆으로 미끄러지는 정도만큼 충전
         if self.drifting:
             if self.on_grass:
                 self.gauge -= config.BOOST_GRASS_LOSS * dt
             else:
                 speed = math.hypot(f, lat)
                 if speed > 1.0:
-                    self.gauge += config.BOOST_CHARGE * abs(lat) / speed * dt
+                    slip = abs(lat) / speed
+                    self.gauge += config.BOOST_CHARGE * min(1.0, slip / config.DRIFT_SLIP_FULL) * dt
 
         self.vx = f * fx + lat * rx
         self.vy = f * fy + lat * ry

@@ -42,16 +42,18 @@ CAR_WIDTH = 12
 ROTATION_STEPS = 64          # 미리 만들어 둘 회전 이미지 개수
 SPEED_TO_KMH = 0.9           # 화면에 표시할 속도 환산값
 
-# 드리프트 (고속에서 B를 누르며 조향)
+# 드리프트 (고속에서 B를 누르며 조향, B는 짧게 눌러도 되고 계속 눌러도 돼요)
 DRIFT_MIN_SPEED = 120.0      # 이 속도 이상에서만 드리프트 시작
-DRIFT_END_SPEED = 70.0       # 이 아래로 느려지면 드리프트 끝
-DRIFT_GRIP = 1.6             # 드리프트 중 접지력 (작을수록 많이 미끄러짐)
-DRIFT_TURN_MULT = 1.3        # 드리프트 중 회전 속도 배율
-DRIFT_HANDBRAKE = 60.0       # 드리프트 중 B를 계속 누르면 이만큼만 감속 (일반 브레이크보다 약하게)
+DRIFT_END_SPEED = 60.0       # 이 아래로 느려지면 드리프트 끝
+DRIFT_RELEASE_GRACE = 0.25   # 조향을 이 시간 넘게 놓고 있어야 드리프트 끝 (방향 고쳐 잡는 동안 안 끊기게)
+DRIFT_GRIP = 3.0             # 드리프트 중 접지력 (작을수록 많이 미끄러짐)
+DRIFT_TURN_MULT = 1.25       # 드리프트 중 회전 속도 배율
+DRIFT_KEEP = 0.8             # 옆으로 미끄러지며 잃는 속도 중 앞으로 되돌려주는 비율 (클수록 속도 유지)
+DRIFT_SLIP_FULL = 0.35       # 이만큼 미끄러지면 게이지가 최대 속도로 참
 
 # 부스트
 BOOST_SEGMENTS = 3           # 게이지 칸 수 (부스트 1번 = 1칸)
-BOOST_CHARGE = 1.0           # 드리프트로 게이지가 차는 속도 (미끄러지는 정도 x 시간에 곱함)
+BOOST_CHARGE = 0.8           # 드리프트로 게이지가 차는 속도 (칸/초, 충분히 미끄러질 때)
 BOOST_SEC = 1.5              # 부스트 지속 시간
 BOOST_SPEED_MULT = 1.3       # 부스트 중 최고 속도 배율
 BOOST_ACCEL = 300.0          # 부스트 중 추가 가속
