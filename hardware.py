@@ -40,12 +40,30 @@ class PiHardware:
             b.pull = digitalio.Pull.UP
             self._buttons[name] = b
         self.running = True  # 파이에서는 Ctrl+C로 종료
+        import numpy
+        self._np = numpy
+        self._fast_show = True
 
     def read_input(self):
         # 보넷 버튼은 누르면 False
         return {name: not b.value for name, b in self._buttons.items()}
 
     def show(self, image):
+        """화면 전송. 라이브러리의 disp.image()는 픽셀 11만 개를 파이썬 리스트로 바꿨다가
+        다시 바이트로 바꿔서 느려요. 같은 변환(회전 + RGB565)을 numpy로 바로 바이트로 만들어서 보내요."""
+        if self._fast_show:
+            try:
+                rot = self.disp.rotation
+                if rot:
+                    image = image.rotate(rot, expand=True)      # 라이브러리와 똑같이 돌려요
+                w, h = image.size
+                data = self._np.asarray(image.convert("RGB"), dtype=self._np.uint16)
+                c = ((data[:, :, 0] & 0xF8) << 8) | ((data[:, :, 1] & 0xFC) << 3) | (data[:, :, 2] >> 3)
+                self.disp._block(0, 0, w - 1, h - 1, c.astype(">u2").tobytes())
+                return
+            except Exception as e:                            # 라이브러리 버전이 달라 실패하면 원래 방식으로
+                print("[hardware] 빠른 화면 전송 실패, 기본 방식으로 전환:", e)
+                self._fast_show = False
         self.disp.image(image)
 
     def close(self):
