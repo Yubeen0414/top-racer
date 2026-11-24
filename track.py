@@ -271,6 +271,34 @@ class Track:
             d.ellipse((lx - 3, ly - 3, lx + 3, ly + 3), fill=(255, 235, 150))
 
     # ---------- 미니맵 ----------
+    VIEW_PAD = 260   # 화면 대각선 절반(170) + 카메라 룩어헤드(70) + 여유
+
+    def view_image(self):
+        """rotate 모드용: 맵 바깥을 검정 대신 땅(잔디) 무늬로 채운 큰 그림. 처음 쓸 때 한 번만 만들어요.
+        보기만 하는 그림이라 판정(벽)은 그대로예요. 맵 원점은 (VIEW_PAD, VIEW_PAD)에 있어요."""
+        if getattr(self, "_view", None) is None:
+            P, th = self.VIEW_PAD, self.theme
+            W, H = self.w + 2 * P, self.h + 2 * P
+            rng = np.random.default_rng(12345)     # 트랙 rng와 따로 (트랙 모양에 영향 없게)
+            noise = rng.integers(-14, 15, (H // 3 + 1, W // 3 + 1, 1))
+            base = np.clip(np.array(th["grass"]) + noise, 0, 255).astype(np.uint8)
+            img = Image.fromarray(base.repeat(3, axis=0).repeat(3, axis=1)[:H, :W], "RGB")
+            d = ImageDraw.Draw(img)
+            for _ in range(W * H // 2300):
+                x, y = rng.integers(0, W), rng.integers(0, H)
+                d.rectangle((x, y, x + 2, y + 2), fill=th["grass_dot"])
+            sea = self.data.get("sea")
+            if sea:   # 바다 쪽은 바깥도 바다로 이어지게
+                color = sea.get("color", (40, 110, 170))
+                box = (0, P + self.h, W, H) if sea["side"] == "bottom" else (P + self.w, 0, W, H)
+                d.rectangle(box, fill=color)
+                for _ in range((box[2] - box[0]) * (box[3] - box[1]) // 900):
+                    x, y = rng.integers(box[0], box[2]), rng.integers(box[1], box[3])
+                    d.line((x, y, x + 8, y), fill=(120, 180, 220))
+            img.paste(self.image, (P, P))
+            self._view = img
+        return self._view
+
     def make_minimap(self, size):
         """트랙 모양만 작게 (시작할 때 한 번). 반환: (RGBA 그림, 월드->미니맵 변환 함수)"""
         pad = 4

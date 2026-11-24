@@ -61,6 +61,8 @@ class RaceSession:
         self.track = track = game.track
         self.car = Car(*track.start_pos, track.start_heading)
         self.cam = Camera(self.car.x, self.car.y, track.w, track.h)
+        if config.CONTROL_MODE == "rotate":
+            track.view_image()                       # 카운트다운 전에 미리 만들어 둬요 (처음 한 번만)
         self.lap = LapTracker(track)
         self.lap.start(self.car)
 
@@ -124,10 +126,11 @@ class RaceSession:
         sa, ca = math.sin(a), math.cos(a)
         cx, cy = self.cam.x, self.cam.y
         # 화면 (X, Y) -> 월드 (x, y). 화면 위 = 월드의 a 방향, 화면 오른쪽 = 운전석 기준 오른쪽
-        data = (-sa, -ca, cx + sa * sw / 2 + ca * sh / 2,
-                ca, -sa, cy - ca * sw / 2 + sa * sh / 2)
+        P = self.track.VIEW_PAD                     # 맵 바깥도 땅으로 채운 그림 (원점이 P만큼 밀려 있어요)
+        data = (-sa, -ca, cx + P + sa * sw / 2 + ca * sh / 2,
+                ca, -sa, cy + P - ca * sw / 2 + sa * sh / 2)
         resample = Image.NEAREST if config.CAMERA_ROTATE_FAST else Image.BILINEAR
-        frame = self.track.image.transform((sw, sh), Image.AFFINE, data, resample=resample)   # 맵 밖은 검정
+        frame = self.track.view_image().transform((sw, sh), Image.AFFINE, data, resample=resample)
 
         def to_screen(x, y, h):
             dx, dy = x - cx, y - cy
