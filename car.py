@@ -12,6 +12,11 @@ heading(라디안): 0 = 오른쪽, 화면 y가 아래로 커지니까 값이 커
   브레이크/후진이 안 걸려요 (B를 계속 누르고 있다가 갑자기 후진하지 않게).
   조향을 잠깐 넘게 놓거나 너무 느려지면 끝나요. 잔디/벽에 닿으면 게이지를 잃어요.
 부스트: 게이지가 1칸 이상일 때 위(up)를 누르면 BOOST_SEC 동안 더 빨라져요.
+
+조향은 config.CONTROL_MODE에 따라 달라요.
+  "rotate"/"classic": 좌/우 = 차 기준으로 왼쪽/오른쪽으로 돌기 (rotate는 화면이 돌아서 차가 항상 위를 봐요)
+  "absolute": 조이스틱을 민 화면 방향으로 차가 돌아요 (후진 중엔 차 뒤쪽이 그 방향으로).
+              이때 부스트는 위 대신 가운데 버튼 (states.RaceState가 boost_request를 켜요).
 """
 import math
 
@@ -82,6 +87,7 @@ class Car:
         self.no_steer_time = 0.0  # 드리프트 중 조향을 놓고 있던 시간
         self.b_lock = False       # 드리프트에 쓴 B를 아직 안 뗐으면 True (브레이크 막기)
         self.boost_time = 0.0
+        self.boost_request = False  # absolute 모드에서 가운데 버튼으로 요청한 부스트
 
     @property
     def speed(self):
@@ -97,24 +103,45 @@ class Car:
     # ---------- 물리 ----------
     def update(self, dt, inp, track):
         f_old = self.forward_speed()
-        steer = int(inp.held("right")) - int(inp.held("left"))
+        absolute = config.CONTROL_MODE == "absolute"
+        if absolute:
+            sx = int(inp.held("right")) - int(inp.held("left"))
+            sy = int(inp.held("down")) - int(inp.held("up"))
+            stick = bool(sx or sy)
+            steer, diff, target = 0, 0.0, self.heading
+            if stick:
+                target = math.atan2(sy, sx)
+                # 후진 중(또는 서서 B로 후진 시작)이면 차 뒤쪽을 조이스틱 방향으로
+                if f_old < -5 or (inp.held("b") and not inp.held("a") and f_old < 5 and not self.drifting):
+                    target += math.pi
+                diff = (target - self.heading + math.pi) % (2 * math.pi) - math.pi
+                if abs(diff) > 1e-3:
+                    steer = 1 if diff > 0 else -1
+            steer_pressed = any(inp.pressed(n) for n in ("up", "down", "left", "right"))
+        else:
+            steer = int(inp.held("right")) - int(inp.held("left"))
+            stick = bool(steer)
+            steer_pressed = inp.pressed("left") or inp.pressed("right")
 
         # 0) 드리프트 시작/끝, 부스트 시작
         if not inp.held("b"):
             self.b_lock = False
         if not self.drifting:
             # B와 조향을 같이 누른 순간 (어느 쪽을 먼저 눌러도 돼요)
-            just = inp.pressed("b") or inp.pressed("left") or inp.pressed("right")
-            if steer and inp.held("b") and just and f_old > config.DRIFT_MIN_SPEED:
+            just = inp.pressed("b") or steer_pressed
+            angled = abs(diff) > config.ABS_DRIFT_MIN_ANGLE if absolute else True
+            if steer and angled and inp.held("b") and just and f_old > config.DRIFT_MIN_SPEED:
                 self.drifting = True
                 self.b_lock = True
                 self.no_steer_time = 0.0
         else:
-            self.no_steer_time = 0.0 if steer else self.no_steer_time + dt
+            self.no_steer_time = 0.0 if stick else self.no_steer_time + dt
             if self.no_steer_time > config.DRIFT_RELEASE_GRACE or self.speed < config.DRIFT_END_SPEED:
                 self.drifting = False
 
-        if inp.pressed("up") and not self.boosting and self.gauge >= 1.0:
+        want_boost = self.boost_request if absolute else inp.pressed("up")
+        self.boost_request = False
+        if want_boost and not self.boosting and self.gauge >= 1.0:
             self.gauge -= 1.0
             self.boost_time = config.BOOST_SEC
 
@@ -123,7 +150,11 @@ class Car:
             factor = min(1.0, abs(f_old) / config.TURN_FULL_SPEED)
             direction = 1 if f_old >= 0 else -1
             rate = config.TURN_RATE * (config.DRIFT_TURN_MULT if self.drifting else 1.0)
-            self.heading = (self.heading + steer * rate * factor * direction * dt) % (2 * math.pi)
+            if absolute:
+                turn = rate * factor * dt              # 목표 방향까지만 돌고 멈춰요 (지나치지 않게)
+                self.heading = (target if abs(diff) <= turn else self.heading + steer * turn) % (2 * math.pi)
+            else:
+                self.heading = (self.heading + steer * rate * factor * direction * dt) % (2 * math.pi)
 
         # 2) 새 방향 기준으로 속도를 앞/옆 성분으로 분해
         fx, fy = math.cos(self.heading), math.sin(self.heading)

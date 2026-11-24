@@ -34,6 +34,17 @@ SAND_MAX_SPEED = 75.0        # 모래 위 최고 속도 (잔디보다 훨씬 느
 SAND_DRAG = 4.0              # 모래 추가 감속
 SAND_CORNER_TURN = 0.55     # 중심선이 이만큼(라디안) 이상 꺾이는 코너 바깥에 모래 (sand 켠 트랙)
 
+# 조작 방식 (기록과 무관해서 바꿔도 저장된 기록은 그대로예요)
+#   "rotate"   : 화면이 차를 따라 돌아서 차가 항상 위를 봐요. 조이스틱 좌/우 = 운전석 기준 좌/우 (추천)
+#   "absolute" : 조이스틱을 민 방향(화면 기준)으로 차가 돌아요. 위로 밀면 화면 위쪽으로 달려요.
+#                조이스틱 위가 조향에 쓰이니까 부스트 = 가운데 짧게, 일시정지 = 가운데 길게
+#   "classic"  : 예전 방식. 화면 고정, 좌/우 = 차 기준 회전
+CONTROL_MODE = "rotate"
+CAMERA_TURN_SMOOTH = 5.0     # (rotate) 화면이 차 방향을 따라 도는 속도 (클수록 딱 붙음, 작을수록 부드러움)
+CAMERA_ROTATE_FAST = False   # (rotate) 파이에서 느리면 True (화면 회전을 거칠지만 빠르게)
+ABS_DRIFT_MIN_ANGLE = 0.35   # (absolute) 차 방향과 조이스틱 방향이 이만큼(라디안) 이상 달라야 드리프트 시작
+PAUSE_HOLD_SEC = 0.6         # (absolute) 가운데 버튼을 이만큼 누르고 있으면 일시정지
+
 # 카메라
 LOOKAHEAD_TIME = 0.35        # 몇 초 앞을 보여줄지
 LOOKAHEAD_MAX = 70.0         # 최대로 앞당기는 거리 (픽셀)

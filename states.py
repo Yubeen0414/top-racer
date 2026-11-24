@@ -10,6 +10,8 @@
   draw(fps)       화면에 보낼 그림을 돌려줘요.
 상태를 바꾸고 싶으면 self.next 에 다음 상태를 넣으면 main.py가 바꿔줘요.
 """
+import math
+
 from PIL import Image, ImageDraw
 
 import config
@@ -104,12 +106,35 @@ class RaceSession:
         return delta
 
     def render_world(self):
+        if config.CONTROL_MODE == "rotate":
+            return self._render_rotated()
         x0, y0 = self.cam.top_left()
         frame = self.track.image.crop((x0, y0, x0 + config.SCREEN_W, y0 + config.SCREEN_H))
         if self.ghost and not self.lap.finished:
             self.ghost.draw(frame, self.lap.current_lap_time, x0, y0)
         self.car.draw(frame, x0, y0, flicker=int(self.lap.time * 20))
         return frame
+
+    def _render_rotated(self):
+        """차가 항상 위를 보도록 돌린 화면.
+        돌려도 모서리가 비지 않게 화면 대각선 크기로 넓게 잘라서 그린 뒤, 돌리고 가운데만 잘라요."""
+        sw, sh = config.SCREEN_W, config.SCREEN_H
+        R = int(math.hypot(sw, sh)) + 4
+        cx, cy = self.cam.x, self.cam.y
+        x0, y0 = int(cx - R / 2), int(cy - R / 2)
+        big = self.track.image.crop((x0, y0, x0 + R, y0 + R))   # 맵 밖은 검정
+        if self.ghost and not self.lap.finished:
+            self.ghost.draw(big, self.lap.current_lap_time, x0, y0)
+        self.car.draw(big, x0, y0, flicker=int(self.lap.time * 20))
+
+        angle = self.cam.angle if self.cam.angle is not None else self.car.heading
+        deg = 90 + math.degrees(angle)          # heading 방향이 화면 위로 오게
+        # 카메라 중심(cx, cy)이 R/2에서 조금 어긋난 만큼 회전 중심을 맞춰요
+        center = (cx - x0, cy - y0)
+        resample = Image.NEAREST if config.CAMERA_ROTATE_FAST else Image.BILINEAR
+        big = big.rotate(deg, resample=resample, center=center)
+        left, top = int(center[0] - sw / 2), int(center[1] - sh / 2)
+        return big.crop((left, top, left + sw, top + sh))
 
 
 def _darken(img, amount):
@@ -176,12 +201,28 @@ class RaceState(State):
         self.banner = None        # [제목, 시간 글자, 색, 남은 시간]
         self.split = None         # [차이(초), 남은 시간]
         self.finish_t = 0.0
+        self.center_t = 0.0       # (absolute) 가운데 버튼 누르고 있는 시간, None = 뗄 때까지 무시
 
     def frame(self, dt, inp):
         s = self.s
         s.cam.update(dt, s.car)
-        if inp.pressed("center") and not s.lap.finished:
-            self.next = PauseState(self.game, self)
+        if s.lap.finished:
+            return
+        if config.CONTROL_MODE != "absolute":
+            if inp.pressed("center"):
+                self.next = PauseState(self.game, self)
+            return
+        # absolute: 가운데 짧게 = 부스트, 길게 = 일시정지
+        if inp.held("center"):
+            if self.center_t is not None:
+                self.center_t += dt
+                if self.center_t >= config.PAUSE_HOLD_SEC:
+                    self.center_t = None
+                    self.next = PauseState(self.game, self)
+        else:
+            if self.center_t:
+                s.car.boost_request = True
+            self.center_t = 0.0
 
     def respawn(self):
         """마지막 체크포인트로 복귀 (시간은 계속 흘러요)"""
@@ -252,6 +293,7 @@ class PauseState(State):
 
     def _resume(self):
         self.race.next = None
+        self.race.center_t = None     # 돌아갈 때 누르고 있던 가운데 버튼이 부스트로 안 들어가게
         self.next = self.race
 
     def frame(self, dt, inp):

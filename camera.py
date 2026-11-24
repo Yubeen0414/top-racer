@@ -1,4 +1,8 @@
-"""룩어헤드 카메라: 달리는 방향 쪽을 더 보여줘요."""
+"""룩어헤드 카메라: 달리는 방향 쪽을 더 보여줘요.
+
+CONTROL_MODE가 "rotate"면 angle도 차 방향을 부드럽게 따라가요.
+그릴 때 이 angle만큼 화면을 돌려서 차가 항상 위를 보게 해요 (states.RaceSession.render_world).
+"""
 import math
 
 import config
@@ -8,6 +12,7 @@ class Camera:
     def __init__(self, x, y, world_w, world_h):
         self.x, self.y = float(x), float(y)
         self.world_w, self.world_h = world_w, world_h
+        self.angle = None          # rotate 모드에서 화면이 바라보는 방향 (차 heading을 따라감)
 
     def update(self, dt, car):
         # 속도 방향으로 앞당긴 지점을 목표로
@@ -21,6 +26,12 @@ class Camera:
         k = 1.0 - math.exp(-config.CAMERA_SMOOTH * dt)
         self.x += (tx - self.x) * k
         self.y += (ty - self.y) * k
+
+        if config.CONTROL_MODE == "rotate":
+            if self.angle is None:
+                self.angle = car.heading
+            diff = (car.heading - self.angle + math.pi) % (2 * math.pi) - math.pi
+            self.angle += diff * (1.0 - math.exp(-config.CAMERA_TURN_SMOOTH * dt))
 
     def top_left(self):
         """화면 왼쪽 위의 월드 좌표 (맵 밖으로 안 나가게 제한)"""
