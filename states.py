@@ -19,7 +19,7 @@ import hud
 import progress
 import ui
 from camera import Camera
-from car import Car
+from car import Car, ghost_sprites, sprite_index
 from ghost import GhostPlayer, GhostRecorder
 from hardware import BUTTONS
 from race import LapTracker
@@ -117,24 +117,39 @@ class RaceSession:
 
     def _render_rotated(self):
         """차가 항상 위를 보도록 돌린 화면.
-        돌려도 모서리가 비지 않게 화면 대각선 크기로 넓게 잘라서 그린 뒤, 돌리고 가운데만 잘라요."""
+        트랙 그림에서 화면 240x240 픽셀만 한 번의 회전 변환(affine)으로 바로 뽑고,
+        차와 고스트는 화면 좌표로 바꿔서 그 위에 그려요. (넓게 잘라서 돌리는 것보다 2배 넘게 빨라요)"""
         sw, sh = config.SCREEN_W, config.SCREEN_H
-        R = int(math.hypot(sw, sh)) + 4
+        a = self.cam.angle if self.cam.angle is not None else self.car.heading
+        sa, ca = math.sin(a), math.cos(a)
         cx, cy = self.cam.x, self.cam.y
-        x0, y0 = int(cx - R / 2), int(cy - R / 2)
-        big = self.track.image.crop((x0, y0, x0 + R, y0 + R))   # 맵 밖은 검정
-        if self.ghost and not self.lap.finished:
-            self.ghost.draw(big, self.lap.current_lap_time, x0, y0)
-        self.car.draw(big, x0, y0, flicker=int(self.lap.time * 20))
-
-        angle = self.cam.angle if self.cam.angle is not None else self.car.heading
-        deg = 90 + math.degrees(angle)          # heading 방향이 화면 위로 오게
-        # 카메라 중심(cx, cy)이 R/2에서 조금 어긋난 만큼 회전 중심을 맞춰요
-        center = (cx - x0, cy - y0)
+        # 화면 (X, Y) -> 월드 (x, y). 화면 위 = 월드의 a 방향, 화면 오른쪽 = 운전석 기준 오른쪽
+        data = (-sa, -ca, cx + sa * sw / 2 + ca * sh / 2,
+                ca, -sa, cy - ca * sw / 2 + sa * sh / 2)
         resample = Image.NEAREST if config.CAMERA_ROTATE_FAST else Image.BILINEAR
-        big = big.rotate(deg, resample=resample, center=center)
-        left, top = int(center[0] - sw / 2), int(center[1] - sh / 2)
-        return big.crop((left, top, left + sw, top + sh))
+        frame = self.track.image.transform((sw, sh), Image.AFFINE, data, resample=resample)   # 맵 밖은 검정
+
+        def to_screen(x, y, h):
+            dx, dy = x - cx, y - cy
+            return (sw / 2 - dx * sa + dy * ca, sh / 2 - dx * ca - dy * sa, h - a - math.pi / 2)
+
+        if self.ghost and not self.lap.finished:
+            p = self.ghost.pose(self.lap.current_lap_time)
+            if p is not None:
+                X, Y, H = to_screen(*p)
+                spr = ghost_sprites()[sprite_index(H)]
+                sx, sy = int(X - spr.width / 2), int(Y - spr.height / 2)
+                if -spr.width < sx < sw and -spr.height < sy < sh:
+                    frame.paste(spr, (sx, sy), spr)
+
+        car = self.car
+        saved = car.x, car.y, car.heading
+        car.x, car.y, car.heading = to_screen(*saved)      # 그리는 동안만 화면 좌표로
+        try:
+            car.draw(frame, 0, 0, flicker=int(self.lap.time * 20))
+        finally:
+            car.x, car.y, car.heading = saved
+        return frame
 
 
 def _darken(img, amount):
